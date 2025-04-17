@@ -22,7 +22,7 @@ app = Flask(__name__)
 
 # Configure paths
 UPLOAD_FOLDER = "uploads"
-PDF_PATH = os.path.join(UPLOAD_FOLDER, "ultimate_resume.pdf")
+PDF_PATH = os.path.join(UPLOAD_FOLDER, "adib-bio-data.pdf")
 
 
 # load pdf and read
@@ -38,26 +38,45 @@ PDF_PATH = os.path.join(UPLOAD_FOLDER, "ultimate_resume.pdf")
     # return jsonify({"response": result})
 
 
-#fix LLM
+#LLM Model Initialization
 llm = ChatGroq( 
         api_key=os.getenv('GROQ_API_KEY'), 
-        model="llama-3.1-8b-instant", 
+        model="deepseek-r1-distill-llama-70b", 
         temperature=0.0, 
-        max_tokens=100, 
+        max_tokens=250, 
         max_retries=2 
     )
 
+
+#llama-3.1-8b-instant
+#deepseek-r1-distill-llama-70b
+
+
+# Initialize embedding model
+embedding_model = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_kwargs={'device': 'cpu'}
+)
+
+
+# backend API Route
 @app.route('/pdf-read', methods=['POST'])
 def read_pdf():
+
+    request_data = request.get_json()
+    user_query = request_data.get('query', '')
+
+    if not user_query:
+        return jsonify({"error": "No query provided"}), 400
     
     loader = PyPDFLoader(PDF_PATH)
 
     #documents = loader.load()
     documents = loader.load_and_split()
 
-    print(documents)
+    #print(documents)
 
-    result = [doc.page_content for doc in documents]
+    #result = [doc.page_content for doc in documents]
 
     text_splitter = RecursiveCharacterTextSplitter( 
         chunk_size=500,
@@ -71,14 +90,6 @@ def read_pdf():
     chunks[0].page_content  # The chunked text 
     chunks[0].metadata    # Page number etc.  
 
-    # get each chunk details from the pdf
-    #return jsonify({"response": chunks[2].page_content})
-
-    # return jsonify({"response": result})
-
-
-    # Fix an Embedding Model
-    embedding_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")  # Correct
 
     # add chunks to embedding 
     db = Chroma.from_documents(
@@ -97,8 +108,8 @@ def read_pdf():
         embedding_function=embedding_model
     )
 
-    retriever = vectorstore.as_retriever(search_kwargs={'k': 3})
-    
+    retriever = vectorstore.as_retriever(search_kwargs={'k': 5})
+
     # retriever = vectorstore.as_retriever( 
     #     search_type="similarity_score_threshold", 
     #     search_kwargs={"score_threshold": 0.5} 
@@ -106,12 +117,12 @@ def read_pdf():
 
     #retriever = vectorstore.as_retriever(search_type="mmr")
 
-    query = "What is the project name ?" 
 
-    docs = retriever.get_relevant_documents(query)
+    docs = retriever.get_relevant_documents(user_query)
 
-    for d in docs:
-        print(d.page_content[:300])  # Preview the most relevant chunks
+    # for d in docs:
+    #     print(d.page_content[:300])  # Preview the most relevant chunks
+
 
     # Serialize documents for JSON response
     # serialized_docs = []
@@ -127,15 +138,10 @@ def read_pdf():
     #     "count": len(docs)
     # }) 
 
-    # define Promt Template
 
-    request_data = request.get_json()
-    user_query = request_data.get('query', '')
 
-    if not user_query:
-        return jsonify({"error": "No query provided"}), 400
-
-    # 3. Optimized prompt template
+ 
+  # Optimized prompt template
     prompt_template = """Answer the question based only on this context:
         {context}
 
@@ -149,7 +155,8 @@ def read_pdf():
     
     prompt = PromptTemplate.from_template(prompt_template)
 
-    chain = (
+    # based qa_chain 
+    qa_chain = (
         {'context': RunnablePassthrough(), 'question': RunnablePassthrough()}
         | prompt
         | llm 
@@ -157,21 +164,30 @@ def read_pdf():
     )
 
 
-    # 5. Streamlined invocation
-    answer = chain.invoke({
+    # Summarization Prompt 
+    summarization_prompt = PromptTemplate.from_template(""" 
+        Please summarize the following answer in short and concise & make sure to shorten it as much as you can to make it look professional summary: 
+    {answer} 
+    """)
+
+    # summary chain 
+    summerization_chain =  summarization_prompt | llm | StrOutputParser()
+
+
+    # qa_chain with invoke with context and question params
+    answer = qa_chain.invoke({
             "context": "\n\n".join(d.page_content for d in docs),
             "question": user_query
         })
+    
+    # after the anser is given by llm use that as input for summary chain
+    summary = summerization_chain.invoke({'answer': answer})
 
     return jsonify({
         "query": user_query,
-        "answer": answer
+        "answer": answer,
+        "summary":  summary
     })
-
-
-
-
-  
 
 
 
