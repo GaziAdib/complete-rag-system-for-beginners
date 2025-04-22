@@ -1,3 +1,5 @@
 /__pycache__
 /rag-env
 .env
+/uploads
+/chroma_db

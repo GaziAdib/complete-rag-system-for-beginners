@@ -99,6 +99,7 @@ def read_pdf():
     )
 
     db.persist()
+    
 
 
     # use vector store to retrrive
@@ -107,6 +108,7 @@ def read_pdf():
         persist_directory="chroma_db",
         embedding_function=embedding_model
     )
+
 
     retriever = vectorstore.as_retriever(search_kwargs={'k': 5})
 
@@ -183,11 +185,29 @@ def read_pdf():
     # after the anser is given by llm use that as input for summary chain
     summary = summerization_chain.invoke({'answer': answer})
 
+    # return jsonify({
+    #     "query": user_query,
+    #     "answer": answer,
+    #     "summary":  summary
+    # })
+
+    embedding_samples = []
+    for i, doc in enumerate(chunks[:3]):  # Limit to first 3 chunks for clarity
+        vector = embedding_model.embed_documents([doc.page_content])[0]  # Get embedding
+        embedding_samples.append({
+            "chunk_index": i,
+            "embedding": vector[:10],  # Only show the first 10 values
+            "metadata": doc.metadata,
+            "content_snippet": doc.page_content[:100]  # First 100 characters for preview
+        })
+
     return jsonify({
         "query": user_query,
         "answer": answer,
-        "summary":  summary
+        "summary":  summary,
+        "embedding_samples": embedding_samples
     })
+    
 
 
 
