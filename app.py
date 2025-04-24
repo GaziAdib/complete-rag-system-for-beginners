@@ -100,14 +100,20 @@ def read_pdf():
 
     db.persist()
     
+    
 
 
-    # use vector store to retrrive
+    # use vector store to retrive
 
     vectorstore = Chroma(
         persist_directory="chroma_db",
         embedding_function=embedding_model
     )
+
+    results = vectorstore.get(include=["embeddings", "documents"])
+
+    print('Results---', results)
+    print('Embeddings', results['embeddings'])
 
 
     retriever = vectorstore.as_retriever(search_kwargs={'k': 5})
